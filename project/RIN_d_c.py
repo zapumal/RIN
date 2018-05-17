@@ -63,7 +63,6 @@ n=30422
 directory = 'dataset/dblp_new'
 network = np.load("dataset/dblp_new/dblp.npy")
 group =np.load("dataset/dblp_new/label.npy")
-print(np.count_nonzero(network))
 m =300
 
 dm = 0
@@ -79,10 +78,6 @@ mmin = np.amin(vecs)
 #vecs = (vecs -mmin)/(mmax-mmin)
 network2 = np.concatenate([network,vecs], axis=1)
 
-dd = np.where(network2 > 1)
-dv = np.where(network2 < 0)
-print(dd)
-print(dv)
 n2 = n
 n=n+m
 hidden_dim =1000
