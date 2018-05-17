@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import norm
-from keras.layers import Input, Dense, Lambda, Dropout, Concatenate, concatenate 
+from keras.layers import Input, Dense, Lambda, Dropout, concatenate 
 from keras.models import Model
 from keras.regularizers import l2
 from keras import backend as K
@@ -16,7 +16,7 @@ from sklearn.metrics import f1_score
 from sklearn.svm import LinearSVC
 from sklearn.cross_validation import train_test_split
 from collections import namedtuple
-from gensim.models.doc2vec import Doc2Vec, Word2Vec
+from gensim.models import Doc2Vec, Word2Vec
 from random import shuffle
 from deepwalk import graph
 import gensim
@@ -25,18 +25,15 @@ import gensim.utils as ut
 from math import ceil
 import tensorflow as tf
 
-def trainDoc2Vec(doc_list=None, buildvoc=1, passes=20, dm=0,
-                 size=100, dm_mean=0, window=8, hs=1, negative=5, min_count=1, workers=0):
-    model = Doc2Vec(dm=dm, size=size, dm_mean=dm_mean, window=window,
-                    hs=hs, negative=negative, min_count=min_count, workers=workers) #PV-DBOW
+def trainDoc2Vec(doc_list=None, buildvoc=1, passes=20, dm=0, size=100, dm_mean=0, window=8, hs=1, negative=5, min_count=1, workers=0):
+
+    model = Doc2Vec(dm=dm, vector_size=size, dm_mean=dm_mean, window=window, hs=hs, negative=negative, min_count=min_count, workers=workers, epochs=passes) #PV-DBOW
+
     if buildvoc == 1:
         print('Building Vocabulary')
         model.build_vocab(doc_list)  # build vocabulate with words + nodeID
 
-    for epoch in range(passes):
-       
-        shuffle(doc_list)  # shuffling gets best results
-        model.train(doc_list)
+    model.train(doc_list, epochs=model.iter, total_examples=model.corpus_count)
 
     return model
 
@@ -66,7 +63,7 @@ n=30422
 directory = 'dataset/dblp_new'
 network = np.load("dataset/dblp_new/dblp.npy")
 group =np.load("dataset/dblp_new/label.npy")
-
+print(np.count_nonzero(network))
 m =300
 
 dm = 0
@@ -76,8 +73,16 @@ alldocs, allsentence = readNetworkData(directory)
 doc_list = alldocs[:]  # for reshuffling per pass
 tridnr_model = trainDoc2Vec(doc_list, workers=cores, size=m, dm=dm, passes=passes, min_count=3)
 vecs = [tridnr_model.docvecs[ut.to_unicode(str(j))] for j in range(n)]
+
+mmax = np.amax(vecs)
+mmin = np.amin(vecs)
+#vecs = (vecs -mmin)/(mmax-mmin)
 network2 = np.concatenate([network,vecs], axis=1)
 
+dd = np.where(network2 > 1)
+dv = np.where(network2 < 0)
+print(dd)
+print(dv)
 n2 = n
 n=n+m
 hidden_dim =1000
@@ -88,7 +93,7 @@ use_loss = 'xent' # 'mse' or 'xent'
 decay = 1e-4 # weight decay, a.k. l2 regularization
 bias = True
 batch_size = 1000
-alpha = 0.1
+alpha = 0.0
 
 def sampling(args):
     z_mean, z_log_var = args
@@ -110,8 +115,7 @@ z2 = Lambda(sampling, output_shape=(m,))([z_mean2, z_log_var2])
 
 con = concatenate([z, z2])
 
-h_decoder = Dense(hidden_dim, kernel_regularizer=l2(decay), bias_regularizer=l2(decay), use_bias=bias, activation='tanh')
-decoder_h1=h_decoder(con)
+decoder_h1= Dense(hidden_dim, kernel_regularizer=l2(decay), bias_regularizer=l2(decay), use_bias=bias, activation='tanh')(con)
 decoder_h = Dense(hid_dim, kernel_regularizer=l2(decay), bias_regularizer=l2(decay), use_bias=bias, activation='tanh')(decoder_h1)
 
 x_hat = Dense(n, kernel_regularizer=l2(decay), bias_regularizer=l2(decay), use_bias=bias, activation='sigmoid')(decoder_h)
@@ -119,7 +123,8 @@ x_hat = Dense(n, kernel_regularizer=l2(decay), bias_regularizer=l2(decay), use_b
 def vae_loss(x, x_hat):
     kl_loss = - 0.5 * K.sum(1 + z_log_var - K.square(z_mean) - K.exp(z_log_var), axis=-1)
     kl_loss2 = - 0.5 * K.sum(1 + z_log_var2 - K.square(z_mean2) - K.exp(z_log_var2), axis=-1)
-    xent_loss = n * objectives.binary_crossentropy(x, x_hat)
+    #xent_loss = n * objectives.binary_crossentropy(x, x_hat)
+    xent_loss = K.sum(K.binary_crossentropy(x_hat, x), axis=-1)
 
     #forder loss
     diag = tf.diag(tf.reduce_sum(adj_matrix, 1)) 
